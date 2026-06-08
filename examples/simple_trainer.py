@@ -14,13 +14,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+import sys
+from pathlib import Path
+repo_root = Path(__file__).resolve().parents[1]
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+
 import json
 import math
 import os
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from pathlib import Path
+
 from typing import Dict, List, Optional, Tuple, Union
 
 import imageio
@@ -53,9 +60,11 @@ from gsplat.distributed import cli
 from gsplat.optimizers import SelectiveAdam
 from gsplat.rendering import rasterization, RasterizeMode
 from gsplat.cuda._wrapper import CameraModel
-from gsplat.strategy import DefaultStrategy, MCMCStrategy
+from gsplat.strategy.default import DefaultStrategy
+from gsplat.strategy import MCMCStrategy
 from gsplat_viewer import GsplatViewer, GsplatRenderTabState
 from nerfview import CameraState, RenderTabState, apply_float_colormap
+
 
 
 @dataclass
@@ -68,6 +77,8 @@ class Config:
     compression: Optional[Literal["png"]] = None
     # Render trajectory path: "interp", "ellipse", "spiral", or "raw" (use captured poses as-is)
     render_traj_path: str = "interp"
+    # Downsample factor for trajectory video render (2 = half res, 4 = quarter res)
+    render_traj_factor: int = 1
 
     # Dataset backend: "colmap" or "ncore"
     data_type: str = "colmap"
@@ -1302,6 +1313,10 @@ class Runner:
         camtoworlds_all = torch.from_numpy(camtoworlds_all).float().to(device)
         K = torch.from_numpy(list(self.parser.Ks_dict.values())[0]).float().to(device)
         width, height = list(self.parser.imsize_dict.values())[0]
+        f = cfg.render_traj_factor
+        width, height = width // f, height // f
+        K = K.clone()
+        K[:2] /= f
 
         # save to video
         video_dir = f"{cfg.result_dir}/videos"
@@ -1458,6 +1473,7 @@ class Runner:
 def main(local_rank: int, world_rank, world_size: int, cfg: Config):
     # Import post-processing modules based on configuration
     # These imports must be here (not in __main__) for distributed workers
+    print("CUSTOM SIMPLE TRAINER")
     if cfg.post_processing == "bilateral_grid":
         global BilateralGrid, slice, total_variation_loss
         if cfg.bilateral_grid_fused:
@@ -1523,6 +1539,7 @@ if __name__ == "__main__":
     CUDA_VISIBLE_DEVICES=0,1,2,3 python simple_trainer.py default --steps_scaler 0.25
 
     """
+    print("CUSTOM MAIN FOR SIMPLE")
 
     # Config objects we can choose between.
     # Each is a tuple of (CLI description, config object).

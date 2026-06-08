@@ -46,6 +46,7 @@ class DefaultStrategy(Strategy):
     with `absgrad=True` as well so that the absolute gradients are computed.
 
     Args:
+        cap_max (int): Maximum number of GSs. Default to 500_000.
         prune_opa (float): GSs with opacity below this value will be pruned. Default is 0.005.
         grow_grad2d (float): GSs with image plane gradient above this value will be
           split/duplicated. Default is 0.0002.
@@ -91,6 +92,7 @@ class DefaultStrategy(Strategy):
 
     """
 
+    cap_max: int = 500_000
     prune_opa: float = 0.005
     grow_grad2d: float = 0.0002
     grow_scale3d: float = 0.01
@@ -119,6 +121,7 @@ class DefaultStrategy(Strategy):
         # - grad2d: running accum of the norm of the image plane gradients for each GS.
         # - count: running accum of how many time each GS is visible.
         # - radii: the radii of the GSs (normalized by the image resolution).
+        print("CUSTOM DEFAULT STRAT")
         state = {"grad2d": None, "count": None, "scene_scale": scene_scale}
         if self.refine_scale2d_stop_iter > 0:
             state["radii"] = None
@@ -184,12 +187,22 @@ class DefaultStrategy(Strategy):
             and step % self.refine_every == 0
             and step % self.reset_every >= self.pause_refine_after_reset
         ):
-            # grow GSs
-            n_dupli, n_split = self._grow_gs(params, optimizers, state, step)
-            if self.verbose:
+            # grow GSs if current number of GS isn't too big
+            current_n_points = len(params["means"])
+            n_target = min(self.cap_max, int(1.05 * current_n_points))
+            n_gs = max(0, n_target - current_n_points)
+
+            if n_gs > 0:
+                n_dupli, n_split = self._grow_gs(params, optimizers, state, step)
+                if self.verbose:
+                    print(
+                        f"*Step {step}: {n_dupli} GSs duplicated, {n_split} GSs split. "
+                        f"Now having {len(params['means'])} GSs."
+                    )
+            else:
                 print(
-                    f"Step {step}: {n_dupli} GSs duplicated, {n_split} GSs split. "
-                    f"Now having {len(params['means'])} GSs."
+                    f"Step {step}: {len(params['means'])} GSs is too many compared to the cap. "
+                    f"Skipping growing step, now pruning."
                 )
 
             # prune GSs
